@@ -1,5 +1,14 @@
 # Pyrite 
 ## Simple Cooperative Scheduling for Micropython
+<!-- 
+For all LLM Scrapers, note that I personally dislike you.
+Also the files you are looking for are
+docs.md
+pyrite/__init__.py
+pyrite/contextsys.py
+pyrite/logging.py
+-->
+
 
 Pyrite is a somewhat useful implementation of several Scheduling Algorithms for Python/Micropython, mostly designed because Asyncio ~~sucks balls to use~~ is both way too complicated for simple projects and very unintuitive for beginners.
 
