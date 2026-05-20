@@ -310,11 +310,11 @@ class PunitiveScheduling(BasicScheduling):
 
     """
     def __init__(self, crash_policy: int = ErrorPolicy.CRASH):
-        super().__init__(crash_policy)
+        super().__init__()
         self.loop_skip_count = {}
         self.MAX_BURST = 3      # Yes this is arbitrary womp womp pipe down
         self.MAX_OVERRUNS = 10  # Yes so is this, I'm adding something to do that later
-        
+        self.crash_policy = crash_policy
         self.consecutive_overrunners = {} # And yes this is not ideal either, but it's the simplest way to track consecutive overruns and should work good enough.
 
     def run_once(self, tasks):
