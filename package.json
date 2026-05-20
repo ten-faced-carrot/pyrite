@@ -1,0 +1,11 @@
+{
+  "urls": [
+    ["pyrite/__init__.py", "pyrite/__init__.py"],
+    ["pyrite/contextsys.py", "pyrite/contextsys.py"],
+    ["pyrite/logging.py", "pyrite/logging.py"]
+  ],
+  "deps": [
+    ["github:josverl/micropython-stubs/mip/typing_mpy.json", "main"]
+  ],
+  "version": "0.0.2"
+}
