@@ -24,7 +24,6 @@ Preemption is nonexistent in Pyrite. The Schedulers rely on the Tasks not blocki
 ### Waiting
 
 Sometimes, a Waiting function is necessary.  Instead of using `time.sleep()`, Pyrite allows functions to `yield` control.
-T
 
 ```py
 def task_that_waits():
@@ -48,3 +47,24 @@ The other, more complex System is called `PunitiveScheduling`. Fundamentally it 
 - After `PunitiveScheduling.MAX_OVERRUNS / 2` consecutive overruns, the Task gets its executions reduced by half, or at most to 5000ms
 - After `PunitiveScheduling.MAX_OVERRUNS` consecutive overruns, the Scheduler disables the task.
 This helps ensure that all functions get a fair slice of time, although it still doesn't prevent the tasks from overrunning. Again, Pyrite just cannot preempt tasks, that's not possible in (Micro)python.
+
+## Error Handling.
+Preferably, your code doesn't have any Errors. Errors are tricky, because they can leave your Code running in an unknown State. Pyrite is aware of this and has several ways to Handle Errors.
+
+Error Handling occurs on two levels, on the `Task` leven and on the `Scheduler` Level. Each Tast can define its own Crash Policy, although by default they adopt the Scheduler's policy, unless explicitly overridden. 
+
+The Error Policies are defined in `Pyrite.ErrorPolicy`:
+- `ErrorPolicy.CRASH`: Default for the Scheduler, crashes ungracefully so the board can reset to a clean state
+- `ErrorPolicy.DISABLE`: Disables the Task when it crashes  
+- `ErrorPolicy.RETRY`: Tries to run the Code again in the next cycle
+- `ErrorPolicy.BACKOFF`: Pushes back the task for an exponentially incrementing amount of time (Capped at 256s)
+- `ErrorPolicy.INHERIT`: Default behaviour for Tasks, means that the Task just adopts the Schedulers Policy.
+
+You can either specify this on the Task level:
+```py
+task = Task(my_code, 100, error_policy = ErrorPolicy.BACKOFF)
+```
+Or on Scheduler Level.
+```py
+sched = Scheduler(SimpleScheduling, ErrorPolicy.BACKOFF)
+```
