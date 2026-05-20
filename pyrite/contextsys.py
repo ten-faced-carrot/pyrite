@@ -13,11 +13,12 @@ class defaultdict(dict):
 
 class SchedulingContext:
     def __init__(self):
-        self.message_queue = deque(maxlen=5)
+        self.message_queue = deque([], 5)
         self.flags = defaultdict(None)
 
     def clear(self):
-        self.message_queue.clear()
+        
+        while self.message_queue: self.message_queue.pop()
         self.flags.clear()
 
     def push_msg(self, msg):

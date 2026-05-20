@@ -391,6 +391,9 @@ class Scheduler:
         """
         self.servicing_functions.append(fn)
 
+    def add_task(self, t: Task):
+        self.add_tasks([t])
+
     def add_tasks(self, t: typing.Union[Task, list[Task]]):
         if self.tasks_locked: 
             self.task_queue.extend(t if isinstance(t, list) else [t])
