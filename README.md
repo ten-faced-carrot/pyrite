@@ -134,3 +134,6 @@ That just clogs execution up for all other Tasks. No Rebalancing can ever be as 
 
 Furthermore, Pyrite *as of now* operates on the principle that the user writes working code. Pyrite provides basic Error Handling (See the docs.md file), but Errors can still render your code in an unknown state, hence why Pyrite's Default Error Behavior is to crash so you can cleanly restart.
 
+## Installation
+
+You can `mip install` it as `github:ten-faced-carrot/pyrite/package.json`.
