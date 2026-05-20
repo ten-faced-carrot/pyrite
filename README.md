@@ -134,6 +134,11 @@ That just clogs execution up for all other Tasks. No Rebalancing can ever be as 
 
 Furthermore, Pyrite *as of now* operates on the principle that the user writes working code. Pyrite provides basic Error Handling (See the docs.md file), but Errors can still render your code in an unknown state, hence why Pyrite's Default Error Behavior is to crash so you can cleanly restart.
 
+
 ## Installation
 
 You can `mip install` it as `github:ten-faced-carrot/pyrite/package.json`.
+
+## And one more thing..
+
+I know AsyncIO exists. I know PyRTOS exists. Pyrite is not trying to compete with those,  but AsyncIO is bulky to use in a setting where Pyrite would work much better and PyRTOS is both unmaintained and too crammed with features. Pyrite's aim is to manage a bunch of short Tasks and maintain fair execution Ratios. With yielding and deferring it offers minimal concurrency, but it was never meant to replace fully concurrent systems like AsyncIO.
