@@ -1,7 +1,9 @@
 # Pyrite 
 ## Simple Cooperative Scheduling for Micropython
 
-Pyrite is a semi-competent implementation of several Scheduling Algorithms for Python/Micropython, mostly designed because Asyncio sucks balls to use.
+Pyrite is a somewhat useful implementation of several Scheduling Algorithms for Python/Micropython, mostly designed because Asyncio ~~sucks balls to use~~ is both way too complicated for simple projects and very unintuitive for beginners.
+
+![](https://i.imgflip.com/asaqc7.jpg)
 Proper docs are in the docs.md File! This is more of a simple tutorial.
 
 ## The situation.
@@ -122,3 +124,4 @@ Stress Tests I made show that the PunitiveScheduling System still manages to kee
 That just clogs execution up for all other Tasks. No Rebalancing can ever be as good as a SimpleScheduler() whose tasks finish so quickly that there is no need to Rebalance.
 
 Furthermore, Pyrite *as of now* operates on the principle that the user writes working code. Pyrite provides basic Error Handling (See the docs.md file), but Errors can still render your code in an unknown state, hence why Pyrite's Default Error Behavior is to crash so you can cleanly restart.
+
