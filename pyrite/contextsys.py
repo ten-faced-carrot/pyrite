@@ -42,3 +42,8 @@ class SchedulingContext:
 
     def is_flag_set(self, name):
         return self.flags.get(name) is not None
+    
+    def get_flag(self, name):
+        return self.flags.get(name)
+    
+    
