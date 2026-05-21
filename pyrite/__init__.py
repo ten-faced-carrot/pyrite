@@ -288,16 +288,21 @@ class Scheduler:
         self.tasks.extend(tasks)
 
 
-    def run_forever(self):
+    def run_forever(self, stop_after_ms = None):
         """
         Hands all execution to the Scheduler, which runs the tasks according to its schedule.
 
         iterdelay: Number of milliseconds the CPU pauses before starting the loop again. Can be low or high, but should at least be lower than the shortest Task interval.
         """
-
+        start_time = ticks_fn()
         while True:
+            if stop_after_ms:
+                if diff_fn(ticks_fn(), start_time) > stop_after_ms: break
             self.run_once()
-            
+
+    def set_error_policy(self, policy):
+        self.algorithm.crash_policy = policy
+
 
     def run_once(self):
         self.loop_context.clear()
