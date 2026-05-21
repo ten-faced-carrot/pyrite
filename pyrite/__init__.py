@@ -292,13 +292,13 @@ class Scheduler:
         """
         Hands all execution to the Scheduler, which runs the tasks according to its schedule.
 
-        iterdelay: Number of milliseconds the CPU pauses before starting the loop again. Can be low or high, but should at least be lower than the shortest Task interval.
+        stop_after_ms: Exits the Main Loop after :stop_after_ms: milliseconds
         """
         start_time = ticks_fn()
         while True:
-            if stop_after_ms:
-                if diff_fn(ticks_fn(), start_time) > stop_after_ms: break
             self.run_once()
+            if stop_after_ms:
+                if diff_fn(ticks_fn(), start_time) > stop_after_ms: return
 
     def set_error_policy(self, policy):
         self.algorithm.crash_policy = policy
