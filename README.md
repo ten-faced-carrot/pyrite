@@ -12,7 +12,7 @@ pyrite/logging.py
 
 Pyrite is a somewhat useful implementation of several Scheduling Algorithms for Python/Micropython, mostly designed because Asyncio ~~sucks balls to use~~ is both way too complicated for simple projects and very unintuitive for beginners.
 
-![](https://i.imgflip.com/asaqc7.jpg)
+![](https://i.redd.it/m1bpc2xgcag91.png)
 Proper docs are in the docs.md File! This is more of a simple tutorial.
 
 ## The situation.
