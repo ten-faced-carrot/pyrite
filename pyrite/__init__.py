@@ -8,7 +8,7 @@ import typing
 import sys
 
 from pyrite.logging import Logger
-from pyrite.contextsys import SchedulingContext
+from pyrite.contextsys import SchedulingContext, _ContextFn
 
 if hasattr(sys, "print_exception"):
     print_exc_fn = sys.print_exception
@@ -94,18 +94,34 @@ class Task:
 
         self._gen = None
         self._extra_delay = 0
-
+        self._wants_context = isinstance(self.update_fn, _ContextFn)
     def stats(self):
         """
         Returns (Task Interval in Milliseconds, Task Name, Task PID, Tasks total runs, Tasks total Runtime, Tasks last Runtime, Tast backoff timer, Task disabled)
         """
         return (self.interval_ms, self.name, self.pid, self.total_runs, self.total_runtime, self.last_runtime, self.backoff, self.disabled)
 
-    def run(self):
+    @staticmethod
+    def with_context(fn):
+        """
+        If added as a decorator, will pass the Scheduler's Context as a keyword argument, as `ctx`
+
+        ```py
+        @Task.with_context
+        def contexttask(ctx):
+            print("Context: {ctx.flags}")
+        ```
+        """
+        return _ContextFn(fn)
+
+    def run(self, ctx = None):
         tstart = ticks_fn()
         
         if self._gen is None:
-            result = self.update_fn()
+            if self._wants_context:
+                result = self.update_fn(ctx)
+            else:
+                result = self.update_fn()
             # If it returned a generator, adopt it; otherwise treat as normal fn
             if hasattr(result, '__next__'):
                 self._gen = result
@@ -134,9 +150,9 @@ class BasicScheduling:
     def __init__(self):
         self.crash_policy = ErrorPolicy.CRASH
      
-    def run(self, task: Task):
+    def run(self, task: Task, ctx: SchedulingContext):
         try:
-            task.run()
+            task.run(ctx)
             if task.oneshot: task.disabled = True
             task.backoff = 2
             return True
@@ -166,13 +182,13 @@ class SimpleScheduling(BasicScheduling):
         self.crash_policy = crash_policy
         super().__init__()
 
-    def run_once(self, tasks):
+    def run_once(self, tasks, ctx = None):
         for task in tasks:
             if task.disabled: continue
 
             now = ticks_fn()
             if diff_fn(now, task.next_run) >= 0:
-                if self.run(task):
+                if self.run(task, ctx):
                 
                     elapsed = diff_fn(now, task.next_run)
                     missed = elapsed // task.interval_ms
@@ -180,7 +196,7 @@ class SimpleScheduling(BasicScheduling):
 
                     for _ in range(missed):
                         if task.missed_tick_policy == MissedTickPolicy.BURST:
-                            self.run(task)
+                            self.run(task, ctx)
 
                     task.next_run = ticks_add(task.next_run, task.interval_ms * (missed + 1) + task._extra_delay)
                     task._extra_delay = 0
@@ -201,7 +217,7 @@ class PunitiveScheduling(BasicScheduling):
         self.crash_policy = crash_policy
         self.consecutive_overrunners = {} # And yes this is not ideal either, but it's the simplest way to track consecutive overruns and should work good enough.
 
-    def run_once(self, tasks):
+    def run_once(self, tasks, ctx: SchedulingContext):
         for task in tasks:
             if task.disabled: 
                 continue
@@ -224,7 +240,7 @@ class PunitiveScheduling(BasicScheduling):
                 #print(diff_fn(ticks_fn(), task.last_execution), task.interval_ms, task.last_execution)
             if diff_fn(now, task.next_run) >= 0:
                 tnow = now # Store a Pre-Execution Timestamp
-                if self.run(task):
+                if self.run(task, ctx):
 
                     now = ticks_fn()
                     time_took = diff_fn(now, tnow)
@@ -311,7 +327,7 @@ class Scheduler:
         self.loop_context.clear()
         try:
             self.tasks_locked = True
-            self.algorithm.run_once(self.tasks)
+            self.algorithm.run_once(self.tasks, self.schedule_context)
             for func in self.servicing_functions:
                 func()
         finally:

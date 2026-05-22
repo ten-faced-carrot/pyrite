@@ -100,25 +100,16 @@ which means that there is no penalty for blocking IO, which can throw off the en
 ## Inter-Task Communication
 
 While definitely not fully fletched-out, Pyrite provides several Ways to communicate data between tasks. It carries data in a class called SchedulingContext().
-For Future-proofing reasons, let it be known that task functions can use this class to read metadata about their Task as well.
+For Future-proofing reasons, let it be known that task functions will eventually be able use this class to read metadata about their Task as well.
 
 A Context fundamentally provides two ways of communication.
 One of them is a Message Queue and the other one is called "flags" and is essentially just a big dictionary accessible to everyone.
 
-Contexts are exposed through the Scheduler, which has two Objects. One named "loop_context", which clears every Scheduling Loop and one named "schedule_context"
-which retains its state until manually .clear()ed.
-
-So a simple use of this might be:
-```
-def sensor_task():
-    temp = dht.read()
-    scheduler.schedule_context.push_msg({"sensor": temp})
-
-def display_task():
-    while scheduler.schedule_context.message_queue:
-        msg = scheduler.schedule_context.pop_msg()
-        fb.text(str(msg["sensor"]), 0, 0)
-        fb.show()
+Context may get passed to functions that get declared with an `@Task.with_context` decorator, so
+```py
+@Task.with_context
+def contextfunc(ctx):
+    ... # Do work here
 ```
 
 Mailbox-Driven Designs are in the works, but I'm not sure if that is really neccessary

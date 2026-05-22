@@ -46,4 +46,10 @@ class SchedulingContext:
     def get_flag(self, name):
         return self.flags.get(name)
     
-    
+class _ContextFn:
+    def __init__(self, fn):
+        self.fn = fn
+        self.__name__ = self.fn.__name__
+
+    def __call__(self, ctx):
+        return self.fn(ctx)
