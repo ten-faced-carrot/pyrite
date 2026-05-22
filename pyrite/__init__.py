@@ -86,7 +86,7 @@ class Task:
         self.backoff = 2
         self.disabled = False
         self.missed_tick_policy = missed_tick_policy
-        self.oneshot = False
+        self.oneshot = oneshot
 
         self.total_runs = 0
         self.total_runtime = 0
