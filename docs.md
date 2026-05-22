@@ -18,6 +18,7 @@ It accepts the following arguments:
 - `missed_tick_policy`: A Flag indicating how to handle missed ticks. Defaults to SKIP, see later execution. I recommend to leave this unchanged.
 - `error_policy`: A Flag indicating how to handle Function Errors. See [Error Handling](#error-handling). Defaults to ErrorPolicy.CRASH
 - `immediate`: A Boolean indicating whether the Task will run immediately in the first scheduling loop
+- `oneshot`: A Boolean (Default False). If set to true, the task will disable after successful execution.
 
 Preemption is nonexistent in Pyrite. The Schedulers rely on the Tasks not blocking too much, so using `.sleep()` is horrible, uncapped while loops can throw the scheduler off terribly, basically just write good code!
 

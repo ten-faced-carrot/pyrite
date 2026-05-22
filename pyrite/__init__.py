@@ -64,7 +64,7 @@ def configure_logger(level):
     logger.level = level
 
 class Task:
-    def __init__(self, update_fn, interval_ms, name = None, missed_tick_policy = MissedTickPolicy.SKIP, error_policy = ErrorPolicy.INHERIT, immediate = False):
+    def __init__(self, update_fn, interval_ms, name = None, missed_tick_policy = MissedTickPolicy.SKIP, error_policy = ErrorPolicy.INHERIT, immediate = False, oneshot = False):
         global DISPLAY_MT_WARNING
 
         now = ticks_fn()
@@ -86,6 +86,7 @@ class Task:
         self.backoff = 2
         self.disabled = False
         self.missed_tick_policy = missed_tick_policy
+        self.oneshot = False
 
         self.total_runs = 0
         self.total_runtime = 0
@@ -133,9 +134,10 @@ class BasicScheduling:
     def __init__(self):
         self.crash_policy = ErrorPolicy.CRASH
      
-    def run(self, task):
+    def run(self, task: Task):
         try:
             task.run()
+            if task.oneshot: task.disabled = True
             task.backoff = 2
             return True
         except Exception as ex:
@@ -161,6 +163,7 @@ class SimpleScheduling(BasicScheduling):
     """
     def __init__(self, crash_policy: int = ErrorPolicy.CRASH):
         self.MAX_BURST = 3
+        self.crash_policy = crash_policy
         super().__init__()
 
     def run_once(self, tasks):
