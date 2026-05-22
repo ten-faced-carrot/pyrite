@@ -71,7 +71,7 @@ the scheduler disables it on the assumption that the function is broken.
 ```
 # Slow-ass Task
 def slow():
-    time.sleep(10)Rebalancing
+    time.sleep(10)
 tasks.append(Task(slow, 500))
 
 sched = Scheduler(PunitiveScheduling)
