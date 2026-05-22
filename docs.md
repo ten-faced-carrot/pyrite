@@ -23,7 +23,7 @@ Preemption is nonexistent in Pyrite. The Schedulers rely on the Tasks not blocki
 
 ### Waiting
 
-Sometimes, a Waiting function is necessary.  Instead of using `time.sleep()`, Pyrite allows functions to `yield` control.
+Sometimes, a Waiting function is necessary.  Instead of using `time.sleep()`, Pyrite allows functions to `yield` control back to the scheduler.
 
 ```py
 def task_that_waits():
@@ -31,6 +31,30 @@ def task_that_waits():
     yield 1000 # Will delay for one second
     print("Did work!")
 ```
+
+### Wait, what does this imply?
+##### Pun intended
+Pyrite's philosophy are short, stateless Tasks. When your task is just
+```py
+def task():
+    adc = read_adc()
+    print(adc)
+```
+There's no hidden leaks, it's clean and easy to debug. However it introduces a nasty reality for Tasks that *do* need a state. You'll have to use globals, or the SchedulingContext, but neither of those are safe to use, and globals should also be avoided in general.
+
+When I started this project, I would've just told you that there's no clean way to use stateful tasks. However, with the yield functionality, even though it doesn't match Pyrite's design philosophy, this is 100% acceptable code:
+
+```py
+def stateful_task():
+    state = None
+    while True:
+        state = do_work()
+        yield 0 # The 0 here is optional, but since default behaviour with no return results might change in later versions, you should always use it, even if you intend to sleep for 0ms.
+```
+
+and this works, the Scheduler can keep up with that and you maintain your state in a safe way.
+
+
 
 ## Schedulers
 
