@@ -78,6 +78,7 @@ class Task:
             )
         self.update_fn = update_fn
         self.interval_ms = interval_ms
+        self.original_interval_ms = interval_ms # So throttled tasks can reset
         self.error_policy = error_policy
         self.next_run = now if immediate else ticks_add(now, interval_ms)
         self.pid = None
@@ -251,6 +252,7 @@ class PunitiveScheduling(BasicScheduling):
                         self.consecutive_overrunners[task.pid] = self.consecutive_overrunners.get(task.pid, 0) + 1
                     else: 
                         self.consecutive_overrunners.pop(task.pid, 0) # Adding the 0 here because otherwise this might throw a KeyError and I can't be bothered to wrap this in Try/Except 
+                        task.interval_ms = task.original_interval_ms
 
                     elapsed = diff_fn(tnow, task.next_run)
                     missed = elapsed // task.interval_ms
@@ -258,7 +260,7 @@ class PunitiveScheduling(BasicScheduling):
 
                     for _ in range(missed):
                         if task.missed_tick_policy == MissedTickPolicy.BURST:
-                            self.run(task)
+                            self.run(task, ctx)
 
                     task.next_run = ticks_add(task.next_run, task.interval_ms * (missed + 1) + task._extra_delay)
                     task._extra_delay = 0
