@@ -192,7 +192,7 @@ class SimpleScheduling(BasicScheduling):
                 if self.run(task, ctx):
                 
                     elapsed = diff_fn(now, task.next_run)
-                    missed = elapsed // task.interval_ms
+                    missed = (elapsed // task.interval_ms) if task.interval_ms else elapsed
                     missed = min(missed, self.MAX_BURST)
 
                     for _ in range(missed):
@@ -255,7 +255,7 @@ class PunitiveScheduling(BasicScheduling):
                         task.interval_ms = task.original_interval_ms
 
                     elapsed = diff_fn(tnow, task.next_run)
-                    missed = elapsed // task.interval_ms
+                    missed = (elapsed // task.interval_ms) if task.interval_ms else elapsed
                     missed = min(missed, self.MAX_BURST)
 
                     for _ in range(missed):
