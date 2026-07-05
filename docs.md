@@ -19,8 +19,12 @@ It accepts the following arguments:
 - `error_policy`: A Flag indicating how to handle Function Errors. See [Error Handling](#error-handling). Defaults to ErrorPolicy.CRASH
 - `immediate`: A Boolean indicating whether the Task will run immediately in the first scheduling loop
 - `oneshot`: A Boolean (Default False). If set to true, the task will disable after successful execution.
+- `after`: A List of Tasks (By name) that have to run before this function - Literally waits until all those functions have executed, even if they crash.
+- `requires`: A List of Tasks (By name) that have to run successfully before this function - The Task will execute if and only if all those tasks have succeeded in executing
 
 Preemption is nonexistent in Pyrite. The Schedulers rely on the Tasks not blocking too much, so using `.sleep()` is horrible, uncapped while loops can throw the scheduler off terribly, basically just write good code!
+
+(Good code here means: Blocking operations (long loops, time.sleep, large computations) will break the scheduler. Try to either keep each task as short as possible, or use the waiting mechanism explained in the next section)
 
 ### Waiting
 

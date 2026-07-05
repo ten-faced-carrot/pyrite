@@ -57,6 +57,16 @@ class ErrorPolicy:
     BACKOFF = 2
     INHERIT = 3
 
+class TaskState:
+    """
+    Task-Internal State that shows how the task is doing. Useful for debugging, and also for ordering.
+    """
+    DISABLED = -1
+    NOT_READY = 0
+    PENDING = 1
+    SUCCEEDED = 2
+    CRASHED = -2
+
 DISPLAY_MT_WARNING = True
 logger = Logger(Logger.WARN)
 
@@ -64,7 +74,7 @@ def configure_logger(level):
     logger.level = level
 
 class Task:
-    def __init__(self, update_fn, interval_ms, name = None, missed_tick_policy = MissedTickPolicy.SKIP, error_policy = ErrorPolicy.INHERIT, immediate = False, oneshot = False):
+    def __init__(self, update_fn, interval_ms, name = None, missed_tick_policy = MissedTickPolicy.SKIP, error_policy = ErrorPolicy.INHERIT, immediate = False, oneshot = False, after=[], requires=[]):
         global DISPLAY_MT_WARNING
 
         now = ticks_fn()
@@ -88,6 +98,10 @@ class Task:
         self.disabled = False
         self.missed_tick_policy = missed_tick_policy
         self.oneshot = oneshot
+        self.state = TaskState.NOT_READY
+
+        self.after = after         # Soft Dependency - Runs if all tasks in this list have at least executed once - even if they crashed
+        self.requires = requires   # Hard Dependency - Runs if and only if all tasks have succeeded
 
         self.total_runs = 0
         self.total_runtime = 0
@@ -131,6 +145,7 @@ class Task:
                 self.last_runtime = diff_fn(ticks_fn(), tstart)
                 self.total_runs += 1
                 self.total_runtime += self.last_runtime
+                self.state = TaskState.SUCCEEDED
                 return
 
         # Advance the generator one step
@@ -138,9 +153,11 @@ class Task:
             try:
                 val = next(self._gen)
                 self._extra_delay = (val - self.interval_ms) if isinstance(val, int) else 0
+                if self.state == TaskState.NOT_READY: self.state = TaskState.PENDING
             except StopIteration:
                 self._gen = None
                 self._extra_delay = 0
+                self.state = TaskState.SUCCEEDED
 
 
         self.last_runtime = diff_fn(ticks_fn(), tstart)
@@ -153,11 +170,14 @@ class BasicScheduling:
      
     def run(self, task: Task, ctx: SchedulingContext):
         try:
+            if task.state == TaskState.NOT_READY: task.state = TaskState.PENDING
             task.run(ctx)
-            if task.oneshot: task.disabled = True
+            if task.oneshot: 
+                task.disabled = True
             task.backoff = 2
             return True
         except Exception as ex:
+            task.state = TaskState.CRASHED
             logger.error(f"Task {task.name} (PID {task.pid}) crashed - {ex} - {print_exc_fn(ex)}")
             if task.error_policy != ErrorPolicy.INHERIT: crash_policy = task.error_policy
             else: crash_policy = self.crash_policy
@@ -173,7 +193,6 @@ class BasicScheduling:
                 logger.warn(f"Task crashed. Backing off {task.backoff}s. Next run: {task.next_run} (In {diff_fn(task.next_run, now)})")
             return False
     
-
 class SimpleScheduling(BasicScheduling):
     """
     A Simple Cooperative Scheduler that assumes each function finished super quickly.
@@ -184,9 +203,23 @@ class SimpleScheduling(BasicScheduling):
         super().__init__()
 
     def run_once(self, tasks, ctx = None):
+        tasks_by_id = {t.name: t for t in tasks}
         for task in tasks:
-            if task.disabled: continue
+            dependencies_ready = True
+            for dependency in task.after:
+                if t := tasks_by_id.get(dependency):
+                    if t.state in [TaskState.DISABLED, TaskState.NOT_READY, TaskState.PENDING]:
+                        dependencies_ready = False
+                else: raise ValueError(f"Task not found: {t}")
+            for dependency in task.requires:
+                if t := tasks_by_id.get(dependency):
+                    if t.state is not TaskState.SUCCEEDED:
+                        dependencies_ready = False
+                else: raise ValueError(f"Task not found: {t}")
 
+
+            if task.disabled or not dependencies_ready: 
+                continue
             now = ticks_fn()
             if diff_fn(now, task.next_run) >= 0:
                 if self.run(task, ctx):
@@ -201,7 +234,7 @@ class SimpleScheduling(BasicScheduling):
 
                     task.next_run = ticks_add(task.next_run, task.interval_ms * (missed + 1) + task._extra_delay)
                     task._extra_delay = 0
-               
+        
 class PunitiveScheduling(BasicScheduling):
     """
     A stricter reimplementation of the SimpleScheduler that detects when a Task takes longer than its tick Interval
@@ -219,8 +252,24 @@ class PunitiveScheduling(BasicScheduling):
         self.consecutive_overrunners = {} # And yes this is not ideal either, but it's the simplest way to track consecutive overruns and should work good enough.
 
     def run_once(self, tasks, ctx: SchedulingContext):
+        tasks_by_id = {t.name: t for t in tasks}
         for task in tasks:
-            if task.disabled: 
+            dependencies_ready = True
+            for dependency in task.after:
+                if t := tasks_by_id.get(dependency):
+                    if not t: raise ValueError(f"Task not found: {t}")
+                    if t.state in [TaskState.DISABLED, TaskState.NOT_READY]:
+                        dependencies_ready = False
+
+            for dependency in task.requires:
+                if t := tasks_by_id.get(dependency):
+                    if not t: raise ValueError(f"Task not found: {t}")
+                    if t.state is not TaskState.SUCCEEDED:
+                        dependencies_ready = False
+
+            
+
+            if task.disabled or not dependencies_ready: 
                 continue
             if self.consecutive_overrunners.get(task.pid, 0) > self.MAX_OVERRUNS:
                 task.disabled = True
@@ -265,7 +314,6 @@ class PunitiveScheduling(BasicScheduling):
                     task.next_run = ticks_add(task.next_run, task.interval_ms * (missed + 1) + task._extra_delay)
                     task._extra_delay = 0
                 
-
 class Scheduler:
     """
     Base Scheduler Class.

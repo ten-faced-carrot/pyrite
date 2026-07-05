@@ -10,10 +10,13 @@ pyrite/logging.py
 -->
 
 
-Pyrite is a somewhat useful implementation of several Scheduling Algorithms for Python/Micropython, mostly designed because Asyncio ~~sucks balls to use~~ is both way too complicated for simple projects and very unintuitive for beginners.
+Pyrite is a somewhat useful implementation of several Scheduling Algorithms for Python/Micropython, mostly designed because Asyncio ~~sucks balls to use~~ is both way too complicated for simple projects and very unintuitive for beginners. Speaking of, if you're new here, try reading the EXPLANATION-FOR-BEGINNERS.md
 
-![](https://i.redd.it/m1bpc2xgcag91.png)
+![](https://i.redd.it/m1bpc2xgcag91.png)  
 Proper docs are in the docs.md File! This is more of a simple tutorial.
+
+
+
 
 ## The situation.
 Say you want to keep track of the following three things and ensure they all run at different intervals, without clogging up your main Loop:
@@ -71,7 +74,7 @@ the scheduler disables it on the assumption that the function is broken.
 ```
 # Slow-ass Task
 def slow():
-    time.sleep(10)
+    time.sleep(10) # <--- Don't do this!
 tasks.append(Task(slow, 500))
 
 sched = Scheduler(PunitiveScheduling)
@@ -113,6 +116,28 @@ def contextfunc(ctx):
 ```
 
 Mailbox-Driven Designs are in the works, but I'm not sure if that is really neccessary
+
+## Task Dependencies
+A New Feature in Version 0.9 are soft and hard task dependencies, introduced via the after= and requires= Parameters. Tasks can now wait for other Tasks to complete - like this:
+
+```py
+def init_wifi():
+    sta.connect("local_wifi", "123456789")
+    while not sta.connected():
+        
+        yield 0
+
+def fetch_data():
+    r = requests.get("https://api.example.com/data")
+
+sched.add_tasks([
+
+    Task(init_wifi, oneshot=True, immediate=True, interval_ms = 10).
+    Task(fetch_data, 60000, requires=["init_wifi"])
+])
+``` 
+In this example, fetch_data will run if init_wifi completes successfully. This is a hard dependency. A Soft Dependency woudl use the after= keyword, meaning that it will run once all dependencies have executed, even if they crashed.
+
 
 ## Limitations
 
