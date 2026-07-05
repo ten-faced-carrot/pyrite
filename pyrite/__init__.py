@@ -106,6 +106,7 @@ class Task:
         self.total_runs = 0
         self.total_runtime = 0
         self.last_runtime = 0
+        self.last_run_tick = 0
 
         self._gen = None
         self._extra_delay = 0
@@ -170,7 +171,7 @@ class BasicScheduling:
      
     def run(self, task: Task, ctx: SchedulingContext):
         try:
-            if task.state == TaskState.NOT_READY: task.state = TaskState.PENDING
+            task.state = TaskState.PENDING
             task.run(ctx)
             if task.oneshot: 
                 task.disabled = True
@@ -199,23 +200,25 @@ class SimpleScheduling(BasicScheduling):
     """
     def __init__(self, crash_policy: int = ErrorPolicy.CRASH):
         self.MAX_BURST = 3
+        self.tick = 0
         self.crash_policy = crash_policy
         super().__init__()
 
     def run_once(self, tasks, ctx = None):
+        self.tick += 1
         tasks_by_id = {t.name: t for t in tasks}
         for task in tasks:
             dependencies_ready = True
             for dependency in task.after:
                 if t := tasks_by_id.get(dependency):
-                    if t.state in [TaskState.DISABLED, TaskState.NOT_READY, TaskState.PENDING]:
+                    if t.last_run_tick < task.last_run_tick:
                         dependencies_ready = False
-                else: raise ValueError(f"Task not found: {t}")
+                else: raise ValueError(f"Task not found: {dependency}")
             for dependency in task.requires:
                 if t := tasks_by_id.get(dependency):
-                    if t.state is not TaskState.SUCCEEDED:
+                    if t.state != TaskState.SUCCEEDED:
                         dependencies_ready = False
-                else: raise ValueError(f"Task not found: {t}")
+                else: raise ValueError(f"Task not found: {dependency}")
 
 
             if task.disabled or not dependencies_ready: 
@@ -223,6 +226,7 @@ class SimpleScheduling(BasicScheduling):
             now = ticks_fn()
             if diff_fn(now, task.next_run) >= 0:
                 if self.run(task, ctx):
+                    task.last_run_tick = self.tick
                 
                     elapsed = diff_fn(now, task.next_run)
                     missed = (elapsed // task.interval_ms) if task.interval_ms else elapsed
@@ -250,15 +254,17 @@ class PunitiveScheduling(BasicScheduling):
         self.MAX_OVERRUNS = 10  # Yes so is this, I'm adding something to do that later
         self.crash_policy = crash_policy
         self.consecutive_overrunners = {} # And yes this is not ideal either, but it's the simplest way to track consecutive overruns and should work good enough.
+        self.tick = 0
 
     def run_once(self, tasks, ctx: SchedulingContext):
+        self.tick += 1
         tasks_by_id = {t.name: t for t in tasks}
         for task in tasks:
             dependencies_ready = True
             for dependency in task.after:
                 if t := tasks_by_id.get(dependency):
                     if not t: raise ValueError(f"Task not found: {t}")
-                    if t.state in [TaskState.DISABLED, TaskState.NOT_READY]:
+                    if t.last_run_tick < task.last_run_tick:
                         dependencies_ready = False
 
             for dependency in task.requires:
@@ -291,7 +297,7 @@ class PunitiveScheduling(BasicScheduling):
             if diff_fn(now, task.next_run) >= 0:
                 tnow = now # Store a Pre-Execution Timestamp
                 if self.run(task, ctx):
-
+                    task.last_run_tick = self.tick
                     now = ticks_fn()
                     time_took = diff_fn(now, tnow)
                     if time_took > task.interval_ms:
@@ -313,7 +319,8 @@ class PunitiveScheduling(BasicScheduling):
 
                     task.next_run = ticks_add(task.next_run, task.interval_ms * (missed + 1) + task._extra_delay)
                     task._extra_delay = 0
-                
+
+
 class Scheduler:
     """
     Base Scheduler Class.
