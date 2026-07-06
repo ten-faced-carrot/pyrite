@@ -277,13 +277,11 @@ class PunitiveScheduling(BasicScheduling):
 
             if task.disabled or not dependencies_ready: 
                 continue
+            
             if self.consecutive_overrunners.get(task.pid, 0) > self.MAX_OVERRUNS:
                 task.disabled = True
                 logger.error(f"Disabled {task.name} - chronic overrunner")
 
-            if self.consecutive_overrunners.get(task.pid, 0) > self.MAX_OVERRUNS / 2:
-                task.interval_ms = min(task.interval_ms * 2, 5000)  # Back off interval
-                logger.info(f"Reduced {task.name}'s Frequency (Now {task.interval_ms}ms)")
             now = ticks_fn()
             if task.pid in self.loop_skip_count:
                 remaining = diff_fn(self.loop_skip_count[task.pid], ticks_fn())
@@ -295,16 +293,21 @@ class PunitiveScheduling(BasicScheduling):
                 self.loop_skip_count.pop(task.pid)
                 #print(diff_fn(ticks_fn(), task.last_execution), task.interval_ms, task.last_execution)
             if diff_fn(now, task.next_run) >= 0:
+                
                 tnow = now # Store a Pre-Execution Timestamp
                 if self.run(task, ctx):
-                    task.last_run_tick = self.tick
+
                     now = ticks_fn()
                     time_took = diff_fn(now, tnow)
                     if time_took > task.interval_ms:
-                        logger.info(f"{task.name} (PID {task.pid}) overran by {time_took-task.interval_ms}ms")
+                        logger.warn(f"{task.name} (PID {task.pid}) overran by {time_took-task.interval_ms}ms (Overran {self.consecutive_overrunners.get(task.pid, 0) + 1} times)")
                         self.loop_skip_count[task.pid] = ticks_add(now, time_took - task.interval_ms)
                         task.overruns += 1
                         self.consecutive_overrunners[task.pid] = self.consecutive_overrunners.get(task.pid, 0) + 1
+                        if self.consecutive_overrunners.get(task.pid, 0) > self.MAX_OVERRUNS / 2:
+                            task.next_run = ticks_add(task.next_run, min(self.consecutive_overrunners.get(task.pid, 0) * 1000, 10000))  # Back off interval
+                            logger.info(f"Reduced {task.name}'s Frequency (Next run in {diff_fn(now, task.next_run)})")
+                        
                     else: 
                         self.consecutive_overrunners.pop(task.pid, 0) # Adding the 0 here because otherwise this might throw a KeyError and I can't be bothered to wrap this in Try/Except 
                         task.interval_ms = task.original_interval_ms
