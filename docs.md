@@ -19,50 +19,13 @@ It accepts the following arguments:
 - `error_policy`: A Flag indicating how to handle Function Errors. See [Error Handling](#error-handling). Defaults to ErrorPolicy.CRASH
 - `immediate`: A Boolean indicating whether the Task will run immediately in the first scheduling loop
 - `oneshot`: A Boolean (Default False). If set to true, the task will disable after successful execution.
-- `after`: A List of Tasks (By name) or Targets (see below) that have to run before this function - Literally waits until all those functions have executed, even if they crash.
-- `requires`: A List of Tasks (By name) or Targets (see below) that have to run successfully before this function - The Task will execute if and only if all those tasks have succeeded in executing
-- `unless`: A List of Tasks (By name) or Targets (see below) that must NOT have completed for this task to run. Potentially useful for connecting to networks or calibrating sensors.
+- `after`: A List of Tasks (By name) that have to run before this function - Literally waits until all those functions have executed, even if they crash.
+- `requires`: A List of Tasks (By name) that have to run successfully before this function - The Task will execute if and only if all those tasks have succeeded in executing
 
 Preemption is nonexistent in Pyrite. The Schedulers rely on the Tasks not blocking too much, so using `.sleep()` is horrible, uncapped while loops can throw the scheduler off terribly, basically just write good code!
 
 (Good code here means: Blocking operations (long loops, time.sleep, large computations) will break the scheduler. Try to either keep each task as short as possible, or use the waiting mechanism explained in the next section)
 
-### Targets
-A *Target* provides a publish-subscribe synchronization mechanism for coordinating tasks. They allow Tasks to signal events, wait for conditions and establish dependencies without hard-coding relationships.
-
-A `Target` is a named signal that can be:
-- Dispatched (published) by tasks
-- Waited on by Tasks (yielding back control until dispatched)
-- Dependency (used in `after` `requires` or `unless`)
-```py
-from pyrite import Target, WaitForTarget
-
-# Create a target
-data_ready = Target("data_ready")
-
-# Use it in dependencies
-task = Task(
-    process_data,
-    interval_ms=100,
-    requires=[data_ready]  # Won't run until data_ready is dispatched
-)
-
-
-# Dispatching a Target
-@Task.with_context
-def producer_task(ctx):
-    # ... produce some data ...
-    ctx.dispatch_target("data_ready")  # Signal that data is available
-    print("Target 'data_ready' dispatched!")
-
-# Waiting for a target
-def consumer_task():
-    # Wait for data_ready target (with 5 second timeout)
-    yield WaitForTarget("data_ready", timeout_ms=5000)
-    
-    # This code runs after the target is dispatched
-    print("Data is ready, processing...")
-```
 ### Waiting
 
 Sometimes, a Waiting function is necessary.  Instead of using `time.sleep()`, Pyrite allows functions to `yield` control back to the scheduler.
@@ -93,13 +56,7 @@ def stateful_task():
         state = do_work()
         yield 0 # The 0 here is optional, but since default behaviour with no return results might change in later versions, you should always use it, even if you intend to sleep for 0ms.
 ```
-or even
 
-```py
-def stateful_task():
-    while True:
-        yield from do_work() # Hands control over to do_work()
-```
 and this works, the Scheduler can keep up with that and you maintain your state in a safe way.
 
 

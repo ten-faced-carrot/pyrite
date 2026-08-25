@@ -64,8 +64,7 @@ class TaskState:
     DISABLED = -1
     NOT_READY = 0
     PENDING = 1
-    WAITING = 2
-    SUCCEEDED = 3
+    SUCCEEDED = 2
     CRASHED = -2
 
 DISPLAY_MT_WARNING = True
@@ -74,19 +73,8 @@ logger = Logger(Logger.WARN)
 def configure_logger(level):
     logger.level = level
 
-class Target: # Fuck you *installs SystemD on your esp32*
-    def __init__(self, name):
-        self.name = name
-
-class WaitForTarget:
-    """Yield this to sleep until a target is dispatched"""
-    def __init__(self, target_name, timeout_ms=None):
-        self.target_name = target_name
-        self.timeout_ms = timeout_ms
-        self.timestamp = ticks_fn()
-
 class Task:
-    def __init__(self, update_fn, interval_ms, name = None, missed_tick_policy = MissedTickPolicy.SKIP, error_policy = ErrorPolicy.INHERIT, immediate = False, oneshot = False, after=[], requires=[], unless=[]):
+    def __init__(self, update_fn, interval_ms, name = None, missed_tick_policy = MissedTickPolicy.SKIP, error_policy = ErrorPolicy.INHERIT, immediate = False, oneshot = False, after=[], requires=[]):
         global DISPLAY_MT_WARNING
 
         now = ticks_fn()
@@ -114,12 +102,6 @@ class Task:
 
         self.after = after         # Soft Dependency - Runs if all tasks in this list have at least executed once - even if they crashed
         self.requires = requires   # Hard Dependency - Runs if and only if all tasks have succeeded
-        self.unless = unless   # Hard Dependency - Runs if and only if nothing here happens
-
-
-        self.blocked_target = None
-        self.blocked_timeout = 0
-        self.blocked_start = 0
 
         self.total_runs = 0
         self.total_runtime = 0
@@ -171,13 +153,6 @@ class Task:
         if self._gen is not None:
             try:
                 val = next(self._gen)
-                if isinstance(val, WaitForTarget):
-                    self.blocked_target = val.target_name
-                    self.blocked_timeout = val.timeout_ms
-                    self.blocked_start = ticks_fn()
-                    self.state = TaskState.WAITING  # New state
-                    self._extra_delay = 0
-                    return
                 self._extra_delay = (val - self.interval_ms) if isinstance(val, int) else 0
                 if self.state == TaskState.NOT_READY: self.state = TaskState.PENDING
             except StopIteration:
@@ -224,7 +199,7 @@ class SimpleScheduling(BasicScheduling):
     A Simple Cooperative Scheduler that assumes each function finished super quickly.
     """
     def __init__(self, crash_policy: int = ErrorPolicy.CRASH):
-        self.max_burst = 3
+        self.MAX_BURST = 3
         self.tick = 0
         self.crash_policy = crash_policy
         super().__init__()
@@ -233,41 +208,17 @@ class SimpleScheduling(BasicScheduling):
         self.tick += 1
         tasks_by_id = {t.name: t for t in tasks}
         for task in tasks:
-            if task.blocked_target:
-                if task.blocked_target in ctx.dispatched_targets:
-                    task.blocked_target = None  # Unblock!
-                else:
-                    # Check timeout
-                    if task.blocked_timeout:
-                        if diff_fn(ticks_fn(), task.blocked_start) > task.blocked_timeout:
-                            task.blocked_target = None  # Timeout, unblock anyway
-                    continue  # Skip this task
             dependencies_ready = True
             for dependency in task.after:
-                if isinstance(dependency, Target):
-                    if dependency.name not in ctx.dispatched_targets:
-                        dependencies_ready = False
-                elif t := tasks_by_id.get(dependency):
+                if t := tasks_by_id.get(dependency):
                     if t.last_run_tick < task.last_run_tick:
                         dependencies_ready = False
                 else: raise ValueError(f"Task not found: {dependency}")
             for dependency in task.requires:
-
-                if isinstance(dependency, Target):
-                    if dependency.name not in ctx.dispatched_targets:
-                        dependencies_ready = False
-                elif t := tasks_by_id.get(dependency):
+                if t := tasks_by_id.get(dependency):
                     if t.state != TaskState.SUCCEEDED:
                         dependencies_ready = False
                 else: raise ValueError(f"Task not found: {dependency}")
-            for dependency in task.unless:
-
-                if isinstance(dependency, Target):
-                    if dependency.name  in ctx.dispatched_targets:
-                        dependencies_ready = False
-                elif t := tasks_by_id.get(dependency):
-                    if t.state == TaskState.SUCCEEDED:
-                        dependencies_ready = False
 
 
             if task.disabled or not dependencies_ready: 
@@ -279,7 +230,7 @@ class SimpleScheduling(BasicScheduling):
                 
                     elapsed = diff_fn(now, task.next_run)
                     missed = (elapsed // task.interval_ms) if task.interval_ms else elapsed
-                    missed = min(missed, self.max_burst)
+                    missed = min(missed, self.MAX_BURST)
 
                     for _ in range(missed):
                         if task.missed_tick_policy == MissedTickPolicy.BURST:
@@ -299,8 +250,8 @@ class PunitiveScheduling(BasicScheduling):
     def __init__(self, crash_policy: int = ErrorPolicy.CRASH):
         super().__init__()
         self.loop_skip_count = {}
-        self.max_burst = 3      # Yes this is arbitrary womp womp pipe down
-        self.max_overruns = 10  # Yes so is this, I'm adding something to do that later
+        self.MAX_BURST = 3      # Yes this is arbitrary womp womp pipe down
+        self.MAX_OVERRUNS = 10  # Yes so is this, I'm adding something to do that later
         self.crash_policy = crash_policy
         self.consecutive_overrunners = {} # And yes this is not ideal either, but it's the simplest way to track consecutive overruns and should work good enough.
         self.tick = 0
@@ -310,48 +261,24 @@ class PunitiveScheduling(BasicScheduling):
         tasks_by_id = {t.name: t for t in tasks}
         for task in tasks:
             dependencies_ready = True
-            if task.blocked_target:
-                if task.blocked_target in ctx.dispatched_targets:
-                    task.blocked_target = None  # Unblock!
-                else:
-                    # Check timeout
-                    if task.blocked_timeout:
-                        if diff_fn(ticks_fn(), task.blocked_start) > task.blocked_timeout:
-                            task.blocked_target = None  # Timeout, unblock anyway
-                    continue  # Skip this task
             for dependency in task.after:
-                
-                if isinstance(dependency, Target): 
-                    if dependency.name not in ctx.dispatched_targets:
-                        dependencies_ready = False
-                elif t := tasks_by_id.get(dependency):
+                if t := tasks_by_id.get(dependency):
                     if not t: raise ValueError(f"Task not found: {t}")
                     if t.last_run_tick < task.last_run_tick:
                         dependencies_ready = False
 
             for dependency in task.requires:
-                
-                if isinstance(dependency, Target):
-                    if dependency.name not in ctx.dispatched_targets:
-                        dependencies_ready = False
-                elif t := tasks_by_id.get(dependency):
+                if t := tasks_by_id.get(dependency):
                     if not t: raise ValueError(f"Task not found: {t}")
                     if t.state is not TaskState.SUCCEEDED:
                         dependencies_ready = False
 
-            for dependency in task.unless:
-
-                if isinstance(dependency, Target):
-                    if dependency.name  in ctx.dispatched_targets:
-                        dependencies_ready = False
-                elif t := tasks_by_id.get(dependency):
-                    if t.state == TaskState.SUCCEEDED:
-                        dependencies_ready = False
+            
 
             if task.disabled or not dependencies_ready: 
                 continue
             
-            if self.consecutive_overrunners.get(task.pid, 0) > self.max_overruns:
+            if self.consecutive_overrunners.get(task.pid, 0) > self.MAX_OVERRUNS:
                 task.disabled = True
                 logger.error(f"Disabled {task.name} - chronic overrunner")
 
@@ -387,7 +314,7 @@ class PunitiveScheduling(BasicScheduling):
 
                     elapsed = diff_fn(tnow, task.next_run)
                     missed = (elapsed // task.interval_ms) if task.interval_ms else elapsed
-                    missed = min(missed, self.max_burst)
+                    missed = min(missed, self.MAX_BURST)
 
                     for _ in range(missed):
                         if task.missed_tick_policy == MissedTickPolicy.BURST:
@@ -440,24 +367,6 @@ class Scheduler:
         self.tasks.extend(tasks)
 
 
-    def to_mermaid(self):
-        lines = ["graph TD"]
-        
-        for task in self.tasks:
-            for dep in task.requires:
-                if isinstance(dep, Target):
-                    lines.append(f"  {dep.name}[{dep.name}] -->|requires| {task.name}")
-                else:
-                    lines.append(f"  {dep} -->|requires| {task.name}")
-            
-            for dep in task.unless:
-                if isinstance(dep, Target):
-                    lines.append(f"  {dep.name}[{dep.name}] -->|unless| {task.name}")
-                else:
-                    lines.append(f"  {dep} -->|unless| {task.name}")
-        
-        return "\n".join(lines)
-
     def run_forever(self, stop_after_ms = None):
         """
         Hands all execution to the Scheduler, which runs the tasks according to its schedule.
@@ -472,15 +381,6 @@ class Scheduler:
 
     def set_error_policy(self, policy):
         self.algorithm.crash_policy = policy
-
-    def set_max_bursts(self, burst: int):
-        if not isinstance(burst, int): raise ValueError("MAX_BURSTS Must be an integer")
-        self.algorithm.max_burst = burst
-
-    def set_max_consecutive_overruns(self, overruns: int):
-        if not isinstance(overruns, int): raise ValueError("MAX_OVERRUNS Must be an integer")
-        if not isinstance(self.algorithm, PunitiveScheduling): raise TypeError("This value can only be set for PunitiveScheduling")
-        self.algorithm.max_overruns = overruns
 
 
     def run_once(self):

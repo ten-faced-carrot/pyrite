@@ -15,14 +15,6 @@ class SchedulingContext:
     def __init__(self):
         self.message_queue = deque([], 5)
         self.flags = defaultdict(None)
-        self.__dispatched_targets = set() # Meh. Still looking for a better way to do this, if there is one
-
-    def dispatch_target(self, name):
-        self.dispatched_targets.add(name)
-
-    @property
-    def dispatched_targets(self):
-        return self.__dispatched_targets
 
     def clear(self):
         
