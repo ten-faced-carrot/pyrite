@@ -116,8 +116,8 @@ Pyrite has several ways to Schedule Tasks. The easiest (and fastest) one is call
 
 The other, more complex System is called `PunitiveScheduling`. Fundamentally it still round-robins through tasks, but importantly detects when tasks terribly overrun and punishes them in the following way:
 - Each time a Task overruns, its next runtime is pushed back by the amount of time it overran
-- After `PunitiveScheduling.MAX_OVERRUNS / 2` consecutive overruns, the Task gets its executions reduced by half, or at most to 5000ms
-- After `PunitiveScheduling.MAX_OVERRUNS` consecutive overruns, the Scheduler disables the task.
+- After `PunitiveScheduling.max_overruns / 2` consecutive overruns, the Task gets its executions reduced by half, or at most to 10000ms
+- After `PunitiveScheduling.max_overruns` consecutive overruns, the Scheduler disables the task.
 This helps ensure that all functions get a fair slice of time, although it still doesn't prevent the tasks from overrunning. Again, Pyrite just cannot preempt tasks, that's not possible in (Micro)python.
 
 ## Error Handling.
