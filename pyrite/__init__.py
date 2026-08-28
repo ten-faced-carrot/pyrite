@@ -198,11 +198,14 @@ class BasicScheduling:
         try:
             task.state = TaskState.PENDING
             task.run(ctx)
+            task.last_run_tick = self.tick
+
             if task.oneshot: 
                 task.disabled = True
             task.backoff = 2
             return True
         except Exception as ex:
+            task.last_run_tick = self.tick
             task.state = TaskState.CRASHED
             logger.error(f"Task {task.name} (PID {task.pid}) crashed - {ex} - {print_exc_fn(ex)}")
             if task.error_policy != ErrorPolicy.INHERIT: crash_policy = task.error_policy
@@ -218,6 +221,7 @@ class BasicScheduling:
                 task.backoff = min(task.backoff * 2, 256)
                 logger.warn(f"Task crashed. Backing off {task.backoff}s. Next run: {task.next_run} (In {diff_fn(task.next_run, now)})")
             return False
+        
     
 class SimpleScheduling(BasicScheduling):
     """
@@ -275,7 +279,6 @@ class SimpleScheduling(BasicScheduling):
             now = ticks_fn()
             if diff_fn(now, task.next_run) >= 0:
                 if self.run(task, ctx):
-                    task.last_run_tick = self.tick
                 
                     elapsed = diff_fn(now, task.next_run)
                     missed = (elapsed // task.interval_ms) if task.interval_ms else elapsed
@@ -476,11 +479,13 @@ class Scheduler:
         self.algorithm.crash_policy = policy
 
     def set_max_bursts(self, burst: int):
-        if not isinstance(burst, int): raise ValueError("MAX_BURSTS Must be an integer")
+        if not isinstance(burst, int): raise TypeError("MAX_BURSTS Must be an integer")
+        if burst < 1: raise ValueError("MAX_BURSTS Must be >0")
         self.algorithm.max_burst = burst
 
     def set_max_consecutive_overruns(self, overruns: int):
-        if not isinstance(overruns, int): raise ValueError("MAX_OVERRUNS Must be an integer")
+        if not isinstance(overruns, int): raise TypeError("MAX_OVERRUNS Must be an integer")
+        if overruns < 1: raise ValueError("MAX_OVERRUNS Must be >0")
         if not isinstance(self.algorithm, PunitiveScheduling): raise TypeError("This value can only be set for PunitiveScheduling")
         self.algorithm.max_overruns = overruns
 
