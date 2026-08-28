@@ -63,6 +63,8 @@ def consumer_task():
     # This code runs after the target is dispatched
     print("Data is ready, processing...")
 ```
+- Targets are *persistent*. They will NOT reset, and act more as checkpoints.
+
 ### Waiting
 
 Sometimes, a Waiting function is necessary.  Instead of using `time.sleep()`, Pyrite allows functions to `yield` control back to the scheduler.
