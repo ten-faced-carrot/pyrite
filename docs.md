@@ -1,10 +1,9 @@
 # Pyrite 
 ## Simple Cooperative Scheduling for Micropython
-
-
+Pyrite was designed to provide an alternative to uAsyncIO on Micropython (even though it works just as well on Python - Yet I personally wouldn't recommend it, as CPython has great multiprocessing support, even though the GIL is a pain).
 
 ## Basic Usage
-Pyrite seperates functionality into Tasks. A Task for the user is basically just a function that gets called repeatedly by the Scheduler.
+Pyrite separates functionality into Tasks. A Task for the user is basically just a function that gets called repeatedly by the Scheduler.
 
 A Basic pyrite project defines a Scheduler and its task functions, wraps those in `Task` objects and registers them with the `add_task` function. Once the Scheduler has been informed, you hand off functionality to the Scheduler using the `.run_forever()` function
 
@@ -65,9 +64,41 @@ def consumer_task():
 ```
 - Targets are *persistent*. They will NOT reset, and act more as checkpoints.
 
+### Locks
+Locks are temporary restrictions you can use to block resources/tasks.
+
+```py
+@Task.with_context
+def task_1(ctx):
+    with ctx.locks.lock("name here"):
+        yield 1000
+```
+or
+
+```py
+@Task.with_context
+def task_1(ctx):
+    ctx.locks.lock("name here")
+    yield 1000
+    ctx.locks.unlock("name here")
+``` 
+for a more controlled approach.
+
+```py
+def task_2(): print("Test")
+
+tasks = [
+    Task(task_1, interval_ms=1000),
+    Task(task_2, interval_ms = 100, unless=[Lock("name here")])
+]
+
+```
+
+Locks will automatically be unlocked after the function is done, or crashed.
+
 ### Waiting
 
-Sometimes, a Waiting function is necessary.  Instead of using `time.sleep()`, Pyrite allows functions to `yield` control back to the scheduler.
+Sometimes, a Waiting function is necessary.  Instead of using `time.sleep()`, Pyrite allows functions to `yield` control back to the scheduler, allowing functions to wait without locking up the whole scheduler.
 
 ```py
 def task_that_waits():
@@ -84,7 +115,7 @@ def task():
     adc = read_adc()
     print(adc)
 ```
-There's no hidden leaks, it's clean and easy to debug. However it introduces a nasty reality for Tasks that *do* need a state. You'll have to use globals, or the SchedulingContext, but neither of those are safe to use, and globals should also be avoided in general.
+There's no hidden leaks, it's clean and easy to debug. However it introduces a nasty reality for Tasks that *do* need a state. You'll have to use globals, or the loop_context, but neither of those are safe to use, and globals should also be avoided in general.
 
 When I started this project, I would've just told you that there's no clean way to use stateful tasks. However, with the yield functionality, even though it doesn't match Pyrite's design philosophy, this is 100% acceptable code:
 
@@ -103,7 +134,78 @@ def stateful_task():
         yield from do_work() # Hands control over to do_work()
 ```
 and this works, the Scheduler can keep up with that and you maintain your state in a safe way.
+### The stalling system
+Pyrite provides `yield <milliseconds>` to yield control, as well as WaitForTarget("targetname"). However, until now, there was no way to wait until an arbitrary condition becomes true. That changes with the new stall() operation.
+```py
+def task():
+    yield from stall(
+        until=lambda: sensor.is_ready(), # Predicate that is checked
+        timeout=0, # Time stall() waits until timing out the operation, raising a TimeoutError. Setting this to 0 will disable timeouts.
+        probe_interval = 100 # The time stall() waits between probes to save CPU Time.
+    )
 
+```
+
+
+### The Loop Context
+...is probably worth mentioning.
+Because with the addition of stateful tasks, this is much less useful now.
+`@Task.with_context` only passes the schedule_context, which is persistent across cycles. If you need the loop_context, you must access it through the scheduler's `loop_context` attribute. Which isn't that intuitive, admittedly.
+
+## Context
+At this point, scheduling_context is becoming so big that it probably deserves a shoutout. It's automagically passed to all functions that get declared as `@Task.with_context`. It is the most comprehensive all-in-one solution to interfacing with the Scheduler. It has the following features:
+
+### Target Control
+The SchedulingContext is what allows you to dispatch targets, which is done via the `ctx.dispatch_target("target_name")` method
+### Locking
+`ctx.locks` provides a way to manage locks, see the [Locks](#locks) documentation
+
+### Inter-Task Communication
+The Context provides a primitive ITC Subsystem, via a "Message Queue" as well as "Flags".
+
+#### Messages
+The Message queue is a shared double-ended queue of maximum length 5. You can interface with the following methods:
+* `ctx.push_msg(payload)` pushes a payload to the Queue
+* `ctx.pop_msg()` removes the first element of the Queue and returns it to the task
+* `ctx.peek_msg()` returns the first element of the Queue to the task without removing it
+
+#### Flags
+Flags act as a shared dictionary between tasks:
+* `ctx.set_flag(name, value=True)` sets a flag.
+* `ctx.get_flag(name)` gets the content of the specified Flag, or `None` by default.
+* `ctx.is_flag_set(name)` returns a boolean that determines whether that flag exists
+* `ctx.clear_flag(name)` Clears that flag from the context
+
+#### Other Metadata
+`ctx.current_task_pid` returns the PID of the currently active task.
+
+
+## Task builder
+For ease-of-use Pyrite has adopted an easier way of creating Tasks via the create_task() call. Instead of having to specify all parameters at creation, you can now run
+```py
+task = create_task(funct).every(100).require(cond_a).run_after(...).require(cond_b).run_unless(exclusion).run_immediately().run_once()
+```
+And use that task as normal!
+
+## Functional-Style declarations
+For functional programmers, pyrite supports a Functional-Inspired Task creation process.
+
+To start, add `from pyrite.functional import <everythign you need>`
+
+You must then wrap your functions in a functional call, like `task = functional(my_function)`
+From here, you can
+```py
+task = every(100, 
+    requires("cond_a", 
+        requires("cond_b", 
+            immediate(unless("excl_a", 
+                after("cond_c", functional(my_function))
+            ))
+        )
+    )
+)
+``` 
+and then use the task object as a normal Task.
 
 
 ## Schedulers
@@ -125,7 +227,7 @@ This helps ensure that all functions get a fair slice of time, although it still
 ## Error Handling.
 Preferably, your code doesn't have any Errors. Errors are tricky, because they can leave your Code running in an unknown State. Pyrite is aware of this and has several ways to Handle Errors.
 
-Error Handling occurs on two levels, on the `Task` leven and on the `Scheduler` Level. Each Tast can define its own Crash Policy, although by default they adopt the Scheduler's policy, unless explicitly overridden. 
+Error Handling occurs on two levels, on the `Task` level and on the `Scheduler` Level. Each Task can define its own Crash Policy, although by default they adopt the Scheduler's policy, unless explicitly overridden. 
 
 The Error Policies are defined in `Pyrite.ErrorPolicy`:
 - `ErrorPolicy.CRASH`: Default for the Scheduler, crashes ungracefully so the board can reset to a clean state
@@ -142,3 +244,8 @@ Or on Scheduler Level.
 ```py
 sched = Scheduler(SimpleScheduling, ErrorPolicy.BACKOFF)
 ```
+
+## The Watchdog
+On systems that offer the _thread library, you can enable Pyrite's Watchdog.
+`scheduler.watchdog.enable()`
+the Scheduler pings the Watchdog every cycle, and if the watchdog receives no heartbeat in 20 seconds it will consider the scheduler locked beyond repair and reset the board if the machine library is available, or raise a SystemError otherwise. On Systems that don't have _thread, you simply cannot use a Watchdog. This might not sound good, but it's arguably better than faking a watchdog that isn't able to do anything.
