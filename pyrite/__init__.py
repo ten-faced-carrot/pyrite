@@ -9,66 +9,12 @@ import sys
 
 from pyrite.logging import Logger
 from pyrite.contextsys import SchedulingContext, _ContextFn
+from pyrite.tasks import Task, create_task, WaitForTarget, stall
+# NEW FOR SEPTEMBER '26! Pyrite now supports a functional API via pyrite.functional
+from pyrite.compat import ticks_fn, ticks_add, diff_fn, print_exc_fn, sleep_ms
+from pyrite.states import TaskState, MissedTickPolicy, ErrorPolicy
+from pyrite.watchdog import Watchdog
 
-if hasattr(sys, "print_exception"):
-    print_exc_fn = sys.print_exception
-else:
-    import traceback
-    print_exc_fn = traceback.print_exception
-
-if hasattr(time, "ticks_ms"):
-    ### MicroPython Environment
-    ticks_fn = time.ticks_ms
-    diff_fn = time.ticks_diff
-    ticks_add = time.ticks_add
-    sleep_ms = time.sleep_ms
-else:
-    """
-    Reinventing the wheel because Micropython's Time Library is objectively better than CPythons, fight me
-    """
-    ticks_fn = lambda: int(time.monotonic() * 1000)
-    diff_fn = lambda a, b: a - b
-    ticks_add = lambda a, b: a+b
-    sleep_ms = lambda m: time.sleep(m/1000)
-
-class MissedTickPolicy:
-    """
-    Tells the Scheduler how to handle missed Executions.
-
-    SKIP: Just ignore the skipped executions and continue normally
-    BURST: Run the Task until it finished executing as many times as it missed
-    """
-
-    SKIP = 0
-    BURST = 1
-
-class ErrorPolicy:
-    """
-    Tells the Scheduler how to handle crashed Tasks. Can either be supplied as an argument to the Scheduler or to a task. The Scheduler prefers the Tasks choice over its own.
-    CRASH   : The scheduler crashes, resetting the board to a clean state. This is the default when creating a Scheduler.
-    DISABLE : Disables the Erroring Task
-    RETRY   : The Scheduler will attempt to run the Task in the next cycle
-    BACKOFF : The Scheduler runs a crashing function less and wait between two consecutive attempts. To avoid any kind of memory overflow, this caps out at 256s.
-    INHERIT : ONLY to be used inside a Task Object, tells the Scheduler that the Task has no specific Preference on how to handle Errors and will comply with the scheduler's preference.
-    """
-    CRASH = -1
-    DISABLE = 0
-    RETRY = 1
-    BACKOFF = 2
-    INHERIT = 3
-
-class TaskState:
-    """
-    Task-Internal State that shows how the task is doing. Useful for debugging, and also for ordering.
-    """
-    DISABLED = -1
-    NOT_READY = 0
-    PENDING = 1
-    WAITING = 2
-    SUCCEEDED = 3
-    CRASHED = -2
-
-DISPLAY_MT_WARNING = True
 logger = Logger(Logger.WARN)
 
 def configure_logger(level):
@@ -78,117 +24,10 @@ class Target: # Fuck you *installs SystemD on your esp32*
     def __init__(self, name):
         self.name = name
 
-class WaitForTarget:
-    """Yield this to sleep until a target is dispatched"""
-    def __init__(self, target_name, timeout_ms=None):
-        self.target_name = target_name
-        self.timeout_ms = timeout_ms
-        self.timestamp = ticks_fn()
+class Lock: # Same abstraction as Target. I don't know what abstraction means but it feels fitting.
+    def __init__(self, resource):
+        self.name = resource
 
-class Task:
-    def __init__(self, update_fn, interval_ms, name = None, missed_tick_policy = MissedTickPolicy.SKIP, error_policy = ErrorPolicy.INHERIT, immediate = False, oneshot = False, after=[], requires=[], unless=[]):
-        global DISPLAY_MT_WARNING
-
-        now = ticks_fn()
-        if missed_tick_policy == MissedTickPolicy.BURST and DISPLAY_MT_WARNING:
-            DISPLAY_MT_WARNING = False
-
-            logger.warn(
-                "WARNING: BURST mode can create death spirals under heavy load. "
-                "If tasks keep overrunning, the scheduler may spend all its time "
-                "replaying missed executions."
-            )
-        self.update_fn = update_fn
-        self.interval_ms = interval_ms
-        self.original_interval_ms = interval_ms # So throttled tasks can reset
-        self.error_policy = error_policy
-        self.next_run = now if immediate else ticks_add(now, interval_ms)
-        self.pid = None
-        self.name = name or update_fn.__name__
-        self.overruns = 0 # Putting this here for Future-Proofing.
-        self.backoff = 2
-        self.disabled = False
-        self.missed_tick_policy = missed_tick_policy
-        self.oneshot = oneshot
-        self.state = TaskState.NOT_READY
-
-        self.after = after         # Soft Dependency - Runs if all tasks in this list have at least executed once - even if they crashed
-        self.requires = requires   # Hard Dependency - Runs if and only if all tasks have succeeded
-        self.unless = unless   # Hard Dependency - Runs if and only if nothing here happens
-
-
-        self.blocked_target = None
-        self.blocked_timeout = 0
-        self.blocked_start = 0
-
-        self.total_runs = 0
-        self.total_runtime = 0
-        self.last_runtime = 0
-        self.last_run_tick = 0
-
-        self._gen = None
-        self._extra_delay = 0
-        self._wants_context = isinstance(self.update_fn, _ContextFn)
-    def stats(self):
-        """
-        Returns (Task Interval in Milliseconds, Task Name, Task PID, Tasks total runs, Tasks total Runtime, Tasks last Runtime, Tast backoff timer, Task disabled)
-        """
-        return (self.interval_ms, self.name, self.pid, self.total_runs, self.total_runtime, self.last_runtime, self.backoff, self.disabled)
-
-    @staticmethod
-    def with_context(fn):
-        """
-        If added as a decorator, will pass the Scheduler's Context as a keyword argument, as `ctx`
-
-        ```py
-        @Task.with_context
-        def contexttask(ctx):
-            print("Context: {ctx.flags}")
-        ```
-        """
-        return _ContextFn(fn)
-
-    def run(self, ctx = None):
-        tstart = ticks_fn()
-        
-        if self._gen is None:
-            if self._wants_context:
-                result = self.update_fn(ctx)
-            else:
-                result = self.update_fn()
-            # If it returned a generator, adopt it; otherwise treat as normal fn
-            if hasattr(result, '__next__'):
-                self._gen = result
-            else:
-                self._extra_delay = 0
-                self.last_runtime = diff_fn(ticks_fn(), tstart)
-                self.total_runs += 1
-                self.total_runtime += self.last_runtime
-                self.state = TaskState.SUCCEEDED
-                return
-
-        # Advance the generator one step
-        if self._gen is not None:
-            try:
-                val = next(self._gen)
-                if isinstance(val, WaitForTarget):
-                    self.blocked_target = val.target_name
-                    self.blocked_timeout = val.timeout_ms
-                    self.blocked_start = ticks_fn()
-                    self.state = TaskState.WAITING  # New state
-                    self._extra_delay = 0
-                    return
-                self._extra_delay = (val - self.interval_ms) if isinstance(val, int) else 0
-                if self.state == TaskState.NOT_READY: self.state = TaskState.PENDING
-            except StopIteration:
-                self._gen = None
-                self._extra_delay = 0
-                self.state = TaskState.SUCCEEDED
-
-
-        self.last_runtime = diff_fn(ticks_fn(), tstart)
-        self.total_runs += 1
-        self.total_runtime += self.last_runtime
 
 class BasicScheduling:
     def __init__(self):
@@ -199,10 +38,13 @@ class BasicScheduling:
             task.state = TaskState.PENDING
             task.run(ctx)
             task.last_run_tick = self.tick
-
+            if task.state == TaskState.SUCCEEDED:
+                for lock in ctx.locks.locked_resources:
+                    if lock[0] == task.pid:
+                        ctx.locks.unlock(lock) # Automagically unlock held locks.
             if task.oneshot: 
                 task.disabled = True
-            task.backoff = 2
+            task.backoff = 2 # If a Task runs successfully, we'll reset the Backoff - we don't want functions that might randomly crash (like I2C or flaky sensors) to be silently throttled to oblivion
             return True
         except Exception as ex:
             task.last_run_tick = self.tick
@@ -220,6 +62,9 @@ class BasicScheduling:
                 task.next_run = ticks_add(now, delay_ms)
                 task.backoff = min(task.backoff * 2, 256)
                 logger.warn(f"Task crashed. Backing off {task.backoff}s. Next run: {task.next_run} (In {diff_fn(task.next_run, now)})")
+            for lock in ctx.locks.locked_resources:
+                if lock[0] == task.pid:
+                    ctx.locks.unlock(lock)
             return False
         
     
@@ -233,10 +78,11 @@ class SimpleScheduling(BasicScheduling):
         self.crash_policy = crash_policy
         super().__init__()
 
-    def run_once(self, tasks, ctx = None):
+    def run_once(self, tasks, ctx: SchedulingContext = None):
         self.tick += 1
         tasks_by_id = {t.name: t for t in tasks}
         for task in tasks:
+            ctx.current_task_pid = task.pid
             if task.blocked_target:
                 if task.blocked_target in ctx.dispatched_targets:
                     task.blocked_target = None  # Unblock!
@@ -260,6 +106,9 @@ class SimpleScheduling(BasicScheduling):
                 if isinstance(dependency, Target):
                     if dependency.name not in ctx.dispatched_targets:
                         dependencies_ready = False
+                elif isinstance(dependency, Lock): # I don't know why you would want to use a Lock here but I'm adding it regardless
+                    if dependency.name not in map(ctx.locks.locked_resources):
+                        dependencies_ready = False
                 elif t := tasks_by_id.get(dependency):
                     if t.state != TaskState.SUCCEEDED:
                         dependencies_ready = False
@@ -269,6 +118,9 @@ class SimpleScheduling(BasicScheduling):
                 if isinstance(dependency, Target):
                     if dependency.name  in ctx.dispatched_targets:
                         dependencies_ready = False
+                elif isinstance(dependency, Lock):
+                    if dependency.name in ctx.locks.locked_resources:
+                        dependencies_ready = False
                 elif t := tasks_by_id.get(dependency):
                     if t.state == TaskState.SUCCEEDED:
                         dependencies_ready = False
@@ -276,6 +128,7 @@ class SimpleScheduling(BasicScheduling):
 
             if task.disabled or not dependencies_ready: 
                 continue
+
             now = ticks_fn()
             if diff_fn(now, task.next_run) >= 0:
                 if self.run(task, ctx):
@@ -312,6 +165,7 @@ class PunitiveScheduling(BasicScheduling):
         self.tick += 1
         tasks_by_id = {t.name: t for t in tasks}
         for task in tasks:
+            ctx.current_task_pid = task.pid
             dependencies_ready = True
             if task.blocked_target:
                 if task.blocked_target in ctx.dispatched_targets:
@@ -417,7 +271,7 @@ class Scheduler:
 
         self.loop_context = SchedulingContext() # Gets cleared every Loop
         self.schedule_context = SchedulingContext() # Retains State forever
-
+        self.watchdog = Watchdog()
 
     def add_service_function(self, fn):
         """
@@ -430,6 +284,7 @@ class Scheduler:
         self.servicing_functions.append(fn)
 
     def add_task(self, t: Task):
+        if t.interval_ms == 0 and not t.oneshot: raise ValueError("Tasks can't run on Zero-Tick Intervals") # We would run into a ZeroDivisionError later.
         self.add_tasks([t])
 
     def add_tasks(self, t: typing.Union[Task, list[Task]]):
@@ -439,6 +294,7 @@ class Scheduler:
         tasks = []
         if isinstance(t, Task): t = [t]
         for task in t:
+            if task.interval_ms == 0 and not task.oneshot: raise ValueError("Tasks can't run on Zero-Tick Intervals")
             task.pid = self._next_pid
             self._next_pid += 1
             tasks.append(task)
@@ -470,9 +326,13 @@ class Scheduler:
         stop_after_ms: Exits the Main Loop after :stop_after_ms: milliseconds
         """
         start_time = ticks_fn()
+        if self.watchdog.alive:
+            self.watchdog.start()
         while True:
+            self.watchdog.heartbeat()
             self.run_once()
             if stop_after_ms:
+                self.watchdog.alive = False
                 if diff_fn(ticks_fn(), start_time) > stop_after_ms: return
 
     def set_error_policy(self, policy):

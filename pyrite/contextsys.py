@@ -1,4 +1,5 @@
 from collections import deque
+from pyrite.utils import find
 
 class defaultdict(dict):
     """
@@ -7,7 +8,7 @@ class defaultdict(dict):
 
     Fuck you fuck you fuck you for making me write 7 lines. That's 7 lines I could've used to hit a drag on my vape and drink an energy. But no.
 
-    May a thousand plagues fall unto thy bloodline.
+    I curse thee and thy bloodline. May thine L's be many and thy bitches few. May a thousand plagues fall unto thy bloodline.
     """
     def __init__(self, defaultvalue):
         super().__init__()
@@ -18,32 +19,60 @@ class defaultdict(dict):
             self[key] = self.defaultvalue
         return super().__getitem__(key)
 
-class LocksControl: # TODO i promise this will be completed
-    def __init__(self):
+class LocksControl: # Primitive but should work still...?
+    def __init__(self, context):
         self.locked_resources = set()
-
+        self.context = context
     def lock(self, resource):
         if resource in self.locked_resources:
-            raise RuntimeError(f"Tried to aquire lock for {resource} but it is already locked!")
-        self.locked_resources.add(resource)
+            raise RuntimeError(
+                f"Tried to acquire lock for {resource} "
+                "but it is already locked!"
+            )
+
+        self.locked_resources.add((self.context.current_task_pid, resource))
+        return _LockContext(self, (self.context.current_task_pid, resource))
 
     def unlock(self, resource):
+        if not isinstance(resource, tuple):
+            resource = find(lambda i: i[1] == resource, self.locked_resources)
+
         if resource not in self.locked_resources:
-            raise RuntimeError(f"Tried to unlock {resource} but it is not locked!")
+            raise RuntimeError(
+                f"Tried to unlock {resource} "
+                "but it is not locked!"
+            )
+        
+
         self.locked_resources.remove(resource)
 
     def is_locked(self, resource):
         return resource in self.locked_resources
+
+
+class _LockContext:
+    def __init__(self, locks, resource):
+        self.locks = locks
+        self.resource = resource
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.locks.unlock(self.resource)
+
 
 class SchedulingContext:
     def __init__(self):
         self.message_queue = deque([], 5)
         self.flags = defaultdict(None)
         self.__dispatched_targets = set() # Meh. Still looking for a better way to do this, if there is one
-        self.locks = LocksControl()
+        self.current_task_pid = None
+        self.locks = LocksControl(self)
+
 
     def dispatch_target(self, name):
-        self.dispatched_targets.add(name)
+        self.__dispatched_targets.add(name)
 
     @property
     def dispatched_targets(self):
