@@ -9,7 +9,7 @@ try:
     reset = machine.reset
 except ImportError:
     def reset(): raise SystemError("Watchdog triggered!")
-from pyrite.compat import ticks_fn, diff_fn
+from pyrite.compat import ticks_fn, diff_fn, sleep_ms
 
 
 class Watchdog:
@@ -28,6 +28,7 @@ class Watchdog:
         while self.alive:
             if diff_fn(ticks_fn(), self.last_ping) > self.timeout:
                 reset()
+            sleep_ms(100)
 
     def heartbeat(self):
         self.last_ping = ticks_fn()
