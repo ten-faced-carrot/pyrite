@@ -47,6 +47,9 @@ class LocksControl: # Primitive but should work still...?
         self.locked_resources.remove(resource)
 
     def is_locked(self, resource):
+        if not isinstance(resource, tuple):
+            resource = find(lambda i: i[1] == resource, self.locked_resources)
+
         return resource in self.locked_resources
 
 
