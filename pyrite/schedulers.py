@@ -12,20 +12,13 @@ from pyrite.tasks import Task
 from pyrite.compat import ticks_fn, ticks_add, diff_fn, print_exc_fn
 from pyrite.states import TaskState, MissedTickPolicy, ErrorPolicy
 from pyrite.watchdog import Watchdog
+from pyrite.primitives import Target, Lock
+from pyrite.utils import detect_cycles
 
 logger = Logger(Logger.WARN)
 
 def configure_logger(level):
     logger.level = level
-
-class Target: # Fuck you *installs SystemD on your esp32*
-    def __init__(self, name):
-        self.name = name
-
-class Lock: # Same abstraction as Target. I don't know what abstraction means but it feels fitting.
-    def __init__(self, resource):
-        self.name = resource
-
 
 class BasicScheduling:
     def __init__(self):
@@ -333,6 +326,9 @@ class Scheduler:
 
         stop_after_ms: Exits the Main Loop after :stop_after_ms: milliseconds
         """
+        has_cycle, cycle = detect_cycles(self.tasks)
+        if has_cycle:
+            raise RuntimeError(f"Circular dependency detected: {' -> '.join(cycle)}")
         start_time = ticks_fn()
         if self.watchdog.alive:
             self.watchdog.start()

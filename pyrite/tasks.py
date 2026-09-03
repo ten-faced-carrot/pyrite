@@ -80,7 +80,7 @@ class Task:
             else:
                 result = self.update_fn()
             # If it returned a generator, adopt it; otherwise treat as normal fn
-            if hasattr(result, '__next__'):
+            if hasattr(result, '__next__'): # there is no inspect in Micropython and while I am insane, I'm not quite insane enough to hack together an inspect module. And in MICROpython of all places this be good enough.
                 self._gen = result
             else:
                 self._extra_delay = 0
