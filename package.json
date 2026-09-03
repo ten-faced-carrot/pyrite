@@ -7,7 +7,7 @@
     ["pyrite/states.py", "pyrite/states.py"],
     ["pyrite/utils.py", "pyrite/utils.py"],
     ["pyrite/schedulers.py", "pyrite/schedulers.py"],
-    ["pyrite/sex_vars.py", "pyrite/sev_vars.py"],
+    ["pyrite/sex_vars.py", "pyrite/sex_vars.py"],
     ["pyrite/utils.py", "pyrite/utils.py"],
     ["pyrite/watchdog.py", "pyrite/watchdog.py"],
     ["pyrite/logging.py", "pyrite/logging.py"],
