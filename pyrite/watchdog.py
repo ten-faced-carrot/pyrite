@@ -8,7 +8,10 @@ try:
     import machine
     reset = machine.reset
 except ImportError:
-    def reset(): raise SystemError("Watchdog triggered!")
+    import os
+    def reset(): 
+        print("Watchdog triggered!")
+        os._exit(1)
 from pyrite.compat import ticks_fn, diff_fn, sleep_ms
 
 
@@ -37,4 +40,4 @@ class Watchdog:
 
         if not threading_available:
             raise SystemError("No Threading available!")
-        _thread.start_new_thread(self.cycle)
+        _thread.start_new_thread(self.cycle, ())

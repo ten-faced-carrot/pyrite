@@ -22,6 +22,7 @@ class defaultdict(dict):
 class LocksControl: # Primitive but should work still...?
     def __init__(self, context):
         self.locked_resources = set()
+        self.locks_to_clear = []
         self.context = context
     def lock(self, resource):
         if resource in self.locked_resources:
@@ -45,6 +46,27 @@ class LocksControl: # Primitive but should work still...?
         
 
         self.locked_resources.remove(resource)
+
+
+    def queue_unlock(self, resource):
+        """
+        No need to be called 
+        """
+        if not isinstance(resource, tuple):
+            resource = find(lambda i: i[1] == resource, self.locked_resources)
+
+        if resource not in self.locked_resources:
+            raise RuntimeError(
+                f"Tried to unlock {resource} "
+                "but it is not locked!"
+            )
+        
+
+        self.locks_to_clear.append(resource)
+
+    def unlock_queued(self):
+        while self.locks_to_clear:
+            self.unlock(self.locks_to_clear.pop())
 
     def is_locked(self, resource):
         if not isinstance(resource, tuple):
