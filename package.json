@@ -2,7 +2,16 @@
   "urls": [
     ["pyrite/__init__.py", "pyrite/__init__.py"],
     ["pyrite/contextsys.py", "pyrite/contextsys.py"],
-    ["pyrite/logging.py", "pyrite/logging.py"]
+    ["pyrite/compat.py", "pyrite/compat.py"],
+    ["pyrite/tasks.py", "pyrite/tasks.py"],
+    ["pyrite/states.py", "pyrite/states.py"],
+    ["pyrite/utils.py", "pyrite/utils.py"],
+    ["pyrite/schedulers.py", "pyrite/schedulers.py"],
+    ["pyrite/sex_vars.py", "pyrite/sev_vars.py"],
+    ["pyrite/utils.py", "pyrite/utils.py"],
+    ["pyrite/watchdog.py", "pyrite/watchdog.py"],
+    ["pyrite/logging.py", "pyrite/logging.py"],
+    ["pyrite/functional.py", "pyrite/functional.py"]
   ],
   "deps": [
     ["github:josverl/micropython-stubs/mip/typing_mpy.json", "main"]
